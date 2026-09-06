@@ -850,8 +850,33 @@ bool MultistreamDock::StartOutput(obs_data_t *settings, QPushButton *streamButto
 	}
 	obs_encoder_t *venc = nullptr;
 	obs_encoder_t *aenc = nullptr;
-	auto advanced = obs_data_get_bool(settings, "advanced");
-	if (advanced) {
+
+	auto shared_source = obs_data_get_string(settings, "shared_encoder_source");
+	bool using_shared_encoder = shared_source && shared_source[0] != '\0';
+
+	if (using_shared_encoder) {
+		/* Share this destination's encoder with another already-running
+		 * destination instead of creating a brand new encoder instance.
+		 * This lets e.g. Twitch and Kick (identical settings) reuse a
+		 * single encoder rather than paying the encode cost twice. */
+		for (auto &o : outputs) {
+			if (std::get<std::string>(o) != shared_source)
+				continue;
+			auto src_output = std::get<obs_output_t *>(o);
+			venc = obs_output_get_video_encoder(src_output);
+			aenc = obs_output_get_audio_encoder(src_output, 0);
+			break;
+		}
+		if (!venc || !aenc) {
+			blog(LOG_WARNING,
+			     "[Aitum Multistream] failed to start stream '%s' because shared encoder source '%s' is not active",
+			     name, shared_source);
+			QMessageBox::warning(
+				this, QString::fromUtf8(obs_module_text("SharedEncoderSourceNotActive")),
+				QString::fromUtf8(obs_module_text("SharedEncoderSourceNotActive")).arg(QString::fromUtf8(shared_source)));
+			return false;
+		}
+	} else if (obs_data_get_bool(settings, "advanced")) {
 		auto venc_name = obs_data_get_string(settings, "video_encoder");
 		if (!venc_name || venc_name[0] == '\0') {
 			//use main encoder
