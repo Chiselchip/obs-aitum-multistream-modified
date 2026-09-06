@@ -28,6 +28,7 @@
 #include <util/dstr.h>
 
 #include <sstream>
+#include <utility>
 #include <util/platform.h>
 #include <util/config-file.h>
 #include "output-dialog.hpp"
@@ -921,6 +922,59 @@ void OBSBasicSettings::AddServer(QFormLayout *outputsLayout, obs_data_t *setting
 		advancedTabWidget->setVisible(is_advanced);
 		obs_data_set_bool(settings, "advanced", is_advanced);
 	});
+
+	// SHARE ENCODER WITH ANOTHER OUTPUT
+	// Lets this destination reuse an already-running sibling destination's
+	// encoder instead of creating its own, e.g. Twitch and Kick using one
+	// shared x264/NVENC instance instead of two identical ones.
+	auto shareEncoderRow = new QHBoxLayout();
+	shareEncoderRow->addWidget(new QLabel(QString::fromUtf8(obs_module_text("ShareEncoderWith"))));
+	auto shareEncoderCombo = new QComboBox();
+	shareEncoderCombo->addItem(QString::fromUtf8(obs_module_text("ShareEncoderWithNone")),
+				   QVariant(QString::fromUtf8("")));
+
+	const char *self_name = obs_data_get_string(settings, "name");
+	std::pair<QComboBox *, std::string> shareComboParam(shareEncoderCombo, self_name ? self_name : "");
+	obs_data_array_enum(
+		outputs,
+		[](obs_data_t *data2, void *param) {
+			auto p = (std::pair<QComboBox *, std::string> *)param;
+			const char *other_name = obs_data_get_string(data2, "name");
+			if (!other_name || !other_name[0] || p->second == other_name)
+				return;
+			// Don't offer a sibling that already shares its encoder from
+			// us; picking it back would create a pair neither can start.
+			const char *other_share = obs_data_get_string(data2, "shared_encoder_source");
+			if (other_share && p->second == other_share)
+				return;
+			p->first->addItem(QString::fromUtf8(other_name), QVariant(QString::fromUtf8(other_name)));
+		},
+		&shareComboParam);
+
+	const char *current_share_source = obs_data_get_string(settings, "shared_encoder_source");
+	bool sharing_initial = current_share_source && current_share_source[0] != '\0';
+	if (sharing_initial) {
+		int shareIdx = shareEncoderCombo->findData(QVariant(QString::fromUtf8(current_share_source)));
+		shareEncoderCombo->setCurrentIndex(shareIdx >= 0 ? shareIdx : 0);
+	}
+
+	advancedButton->setEnabled(!sharing_initial);
+	advancedButton->setToolTip(sharing_initial ? QString::fromUtf8(obs_module_text("ShareEncoderDisablesAdvanced"))
+						    : QString());
+
+	connect(shareEncoderCombo, &QComboBox::currentIndexChanged, [shareEncoderCombo, settings, advancedButton] {
+		auto share_string = shareEncoderCombo->currentData().toString().toUtf8();
+		obs_data_set_string(settings, "shared_encoder_source", share_string.constData());
+		bool sharing = !share_string.isEmpty();
+		if (sharing && advancedButton->isChecked())
+			advancedButton->setChecked(false);
+		advancedButton->setEnabled(!sharing);
+		advancedButton->setToolTip(sharing ? QString::fromUtf8(obs_module_text("ShareEncoderDisablesAdvanced"))
+						    : QString());
+	});
+
+	shareEncoderRow->addWidget(shareEncoderCombo, 1);
+	advancedGroupLayout->addLayout(shareEncoderRow);
 
 	advancedGroupLayout->addWidget(advancedButton);
 
