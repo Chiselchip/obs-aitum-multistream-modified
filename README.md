@@ -1,4 +1,4 @@
-# Aitum Multistream for OBS Studio
+# Aitum Multistream for OBS Studio Modified to Include Encoder Sharing Between Sources
 
 Plugin for [OBS Studio](https://github.com/obsproject/obs-studio) to add [![Aitum logo](media/aitum.png) Aitum](https://aitum.tv)
 
